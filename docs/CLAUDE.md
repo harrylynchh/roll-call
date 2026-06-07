@@ -23,10 +23,13 @@ beyond these three files and the code. If a decision changes the design, update
 - **Branch for every change** (`feat/…`, `fix/…`, `docs/…`), push the *branch*,
   and **open a PR** for Harry to review/merge (`gh pr create`). Keep PRs focused.
 - `main` is the **deploy branch**: merging to `main` auto-deploys via GitHub
-  Actions (Cloudflare Pages + the cron Worker). Don't deploy `main` by hand once
-  CI is in place; let the merge do it.
-- Cloudflare deploys of a *branch* (previews) are fine for testing; production
-  deploys come from `main` via CI.
+  Actions (Cloudflare Pages + the cron Worker), and `deploy.yml` triggers ONLY on
+  push to `main`.
+- **NEVER deploy to production without Harry's explicit permission.** Do not run
+  `wrangler pages deploy`, `wrangler deploy`, or any prod-mutating command on your
+  own initiative. Production changes only through a merge to `main` that Harry
+  controls. (Seeding/inspecting **data** via `wrangler d1 ... --remote` is allowed
+  only when Harry explicitly asks for it.)
 
 ## Security invariants (non-negotiable — never regress these)
 
