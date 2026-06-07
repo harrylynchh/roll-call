@@ -1,0 +1,29 @@
+{
+  "name": "roll-call",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Link-based group contact exchange → single .vcf. Cloudflare Pages + Functions + D1.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler pages dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "db:local": "wrangler d1 execute roll-call-db --local --file=./migrations/0001_init.sql",
+    "db:remote": "wrangler d1 execute roll-call-db --remote --file=./migrations/0001_init.sql",
+    "deploy": "wrangler pages deploy public",
+    "cron:dev": "wrangler dev --config worker-cron/wrangler.toml --test-scheduled",
+    "cron:deploy": "wrangler deploy --config worker-cron/wrangler.toml",
+    "tail": "wrangler pages deployment tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "@vitest/coverage-v8": "^4.1.8",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.8",
+    "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "hono": "^4.7.0"
+  }
+}

@@ -1,0 +1,16 @@
+# Standalone Worker that runs the daily purge (PLAN §9): deletes groups idle
+# > 90 days and their members, and purges expired rate_limits rows. It binds the
+# SAME D1 database as the Pages app — copy the same database_id from ../wrangler.toml.
+# Deploy with `npm run cron:deploy`. No secrets needed (purge is timestamp-driven).
+name = "roll-call-cron"
+main = "index.ts"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "roll-call-db"
+database_id = "9f5bbd75-454d-4441-a7f8-b195eac03709"
+
+[triggers]
+# Daily at 04:00 UTC. Free tier allows Cron Triggers.
+crons = ["0 4 * * *"]

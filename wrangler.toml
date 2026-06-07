@@ -1,0 +1,20 @@
+# Cloudflare Pages config for the Roll Call app (frontend + /api Functions).
+# The daily purge cron lives in a SEPARATE Worker — see worker-cron/wrangler.toml
+# (Pages Functions cannot run scheduled handlers). Both bind the SAME D1 database.
+name = "roll-call"
+compatibility_date = "2025-01-01"
+pages_build_output_dir = "./public"
+
+# D1 binding. Create the DB once with `wrangler d1 create roll-call-db`, then paste
+# the returned database_id below (and into worker-cron/wrangler.toml — same id).
+[[d1_databases]]
+binding = "DB"
+database_name = "roll-call-db"
+database_id = "9f5bbd75-454d-4441-a7f8-b195eac03709"
+
+# Public, non-secret vars. The Turnstile SITE key is public (rendered in the page);
+# the SECRET goes through `wrangler pages secret put TURNSTILE_SECRET`, never here.
+# Replace the placeholder with your real Turnstile site key before deploying.
+# (Local `wrangler pages dev` overrides these from .dev.vars — test keys there.)
+[vars]
+TURNSTILE_SITEKEY = "REPLACE_WITH_YOUR_TURNSTILE_SITE_KEY"

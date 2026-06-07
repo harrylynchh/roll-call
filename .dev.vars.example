@@ -1,0 +1,12 @@
+# Local-dev secrets for `wrangler pages dev`. Copy to `.dev.vars` (gitignored)
+# and fill in real values. These OVERRIDE wrangler.toml [vars] locally.
+#
+# SERVER_SECRET — long random string. Salts IP-address hashes AND signs session
+# token HMACs. Generate one with:  openssl rand -base64 48
+SERVER_SECRET="generate-with-openssl-rand-base64-48"
+
+# Cloudflare Turnstile TEST keys below — they ALWAYS pass and are safe for local
+# dev. Use your real keys in production (site key in wrangler.toml [vars] / dash,
+# secret via `wrangler pages secret put TURNSTILE_SECRET`).
+TURNSTILE_SECRET="1x0000000000000000000000000000000AA"
+TURNSTILE_SITEKEY="1x00000000000000000000AA"
