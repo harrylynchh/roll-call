@@ -38,16 +38,22 @@ docs/           PLAN / CLAUDE / HANDOFF / INFRA
 ## Develop
 
 ```bash
+./dev.sh                            # one-shot: deps + local schema + dev server (:8788)
+# …or manually:
 npm install
 cp .dev.vars.example .dev.vars      # fill SERVER_SECRET; Turnstile test keys are prefilled
 npm run db:local                    # apply schema to local D1
 npm run dev                         # wrangler pages dev (frontend + /api)
 
-npm test                            # vitest (pure security helpers)
+npm test                            # vitest (pure security helpers + validation)
 npm run typecheck                   # tsc --noEmit
 ```
 
+Quick API check once it's running: `curl -s localhost:8788/api/config`.
+
 ## Status
 
-Backend foundation: scaffold, schema, and all core security modules with passing
-unit tests. API routes and frontend are the next phase — see `docs/HANDOFF.md`.
+Backend + full `/api` implemented and tested (75 unit tests; whole flow smoke-
+tested against local D1). Infra provisioned; landing page **live** at
+https://roll-call-77h.pages.dev. The create/join/admin **frontend pages** are the
+next phase — see `docs/HANDOFF.md`.

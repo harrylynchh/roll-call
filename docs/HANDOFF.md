@@ -8,9 +8,11 @@ _Last updated: 2026-06-07 by build-session-1 (foundation + infra provisioned + l
 
 ## Status
 
-**Phase: foundation built & deployed; API routes are the next code.** Backend
-security modules done + tested (66 tests). Cloudflare infra is provisioned and
-the mobile-first landing page is **live**. API routes + frontend flows follow.
+**Phase: full /api implemented + smoke-tested; frontend flows are next.** Backend
+security modules + all API routes done (75 unit tests; whole flow verified
+end-to-end against local D1). Cloudflare infra provisioned, Turnstile wired,
+landing page **live**. Remaining: the create/join/admin **frontend pages**,
+D1 integration tests, and e2e on a real iPhone.
 
 ## Live infra (provisioned 2026-06-07)
 
@@ -24,14 +26,20 @@ the mobile-first landing page is **live**. API routes + frontend flows follow.
 - **Cron Worker:** `roll-call-cron` deployed, bound to the same D1,
   schedule `0 4 * * *` (daily purge).
 
-### ⚠️ Still needs the human (not blocking until the create-group API lands)
-- **Create a Turnstile widget** (dashboard → Turnstile) for hostnames
-  `roll-call-77h.pages.dev` + `localhost`. Then:
-  - put the **site key** into `wrangler.toml [vars] TURNSTILE_SITEKEY` (replace
-    the placeholder) and redeploy, and
-  - `npx wrangler pages secret put TURNSTILE_SECRET --project-name roll-call`.
-- After Functions exist, confirm the **D1 binding** `DB → roll-call-db` shows on
-  the Pages project (dashboard → Pages → roll-call → Settings → Functions).
+- **Turnstile:** ✅ widget created; real **site key** wired into
+  `wrangler.toml [vars]`, **secret** set as a Pages secret. Local dev keeps the
+  Turnstile **test** keys in `.dev.vars` (always pass; no localhost hostname
+  needed). If you want the real widget on localhost, add `localhost` to the
+  widget hostnames and swap `.dev.vars`.
+
+### ⚠️ Still needs the human (next time you deploy the Functions)
+- The `/api` Functions exist now but **aren't deployed yet** (only the static
+  landing page is live). On the next `npm run deploy`, confirm the **D1 binding**
+  `DB → roll-call-db` is attached to the Pages project (dashboard → Pages →
+  roll-call → Settings → Functions). Then the live API is reachable.
+- Before that deploy, **widen the static CSP** in `public/_headers` to allow
+  Turnstile on the create page: add `https://challenges.cloudflare.com` to
+  `script-src` and `frame-src` (needed once the create form renders the widget).
 
 ## Decisions locked
 
@@ -78,31 +86,40 @@ the mobile-first landing page is **live**. API routes + frontend flows follow.
   constant-time edge bytes, E.164 ceiling, etc.).
 - `tsc --noEmit` clean; `git init` done (NOT committed — commit when you want).
 
-## Next up (ordered) — API routes → frontend → deploy
+## Done in build-session-2 (API + infra + landing)
 
-1. **Hono app skeleton** in `functions/api/[[route]].ts` using
-   `hono/cloudflare-pages` (`handle(app)`, `app.basePath('/api')`). Add the
-   security headers middleware (CSP w/ Turnstile origin, `Referrer-Policy:
-   no-referrer`, `nosniff`, HSTS) and a `GET /api/config` → `{turnstileSiteKey}`.
-2. `POST /api/groups` — Turnstile verify (`TURNSTILE_SECRET`) + **required**
-   passphrase (`isAcceptablePassphrase`) + create rate-limit + `creator_ip_hash`;
-   returns join + admin links. (Generic 404 on bad input; never echo tokens.)
-3. `GET /api/groups/:joinToken` (name, member count, `passphraseRequired:true`)
-   and `POST /unlock` (verify passphrase + `RULES.unlock` attempt limit → session).
-4. `POST /api/groups/:joinToken/members` (session-gated) — validate fields
-   (E.164 phones ≤2, length bounds), issue member token, enforce `MEMBER_CAP`.
-5. `GET …/vcard?since=` — session + **reciprocity** (caller holds a member token
-   for this group) + `RULES.vcard` limit; `buildVCardCollection`, delta by
-   `updated_at`; `text/vcard` + `Content-Disposition` (`vcardFilename`).
-6. `PATCH/DELETE /api/members/:memberToken` (self edit/delete).
-7. Admin: `PATCH /api/admin/:adminToken` (rename, **change** passphrase →
-   `changePassphrase` bumps pass_version), `DELETE …/members/:id`, `DELETE …`.
-8. Wire `checkRateLimit` into every write route; add integration tests with
-   `@cloudflare/vitest-pool-workers` (real Miniflare D1) — see gotcha below.
-9. Frontend (`public/`): create `/`, locked join/roster `/g/:t`, admin `/a/:t`,
-   QR of join link, contact import (feature-detect picker → manual fallback).
-10. E2E on a real iPhone (Safari): unlock, manual add, import full + delta.
-11. Final security pass vs CLAUDE.md checklist + `wrangler tail` log scrub check.
+- ✅ **Cloudflare provisioned & landing page deployed** (see "Live infra").
+- ✅ **Mobile-first landing page** (`public/`: index.html, styles.css, app.js,
+  `_headers` tight CSP) — live + verified.
+- ✅ **Full `/api`** (`src/api.ts` via `functions/api/[[route]].ts`): config,
+  create, metadata, unlock, add-member, vcard (delta + reciprocity), member
+  edit/delete, admin (list/rename/change-passphrase/remove/delete). Security-
+  headers + `no-store` middleware; generic-404 posture; thin handlers over the
+  tested modules.
+- ✅ `src/turnstile.ts`, `src/validation.ts` (+ unit tests). 75 unit tests green.
+- ✅ `dev.sh` — applies local schema + launches `wrangler pages dev`.
+- ✅ Whole flow **smoke-tested against local D1** (create→unlock→add→reciprocity
+  →vcard→admin; scope-isolation 404s; no-session 401).
+
+## Next up (ordered) — frontend flows → deploy → e2e
+
+1. **Create page** wiring (`/` CTA → a form): name + passphrase + Turnstile
+   widget → `POST /api/groups`; show join link (with QR) + admin link + "save
+   these" UX. **First add `https://challenges.cloudflare.com` to `_headers`
+   `script-src`/`frame-src`** so the widget loads under CSP.
+2. **Join/roster page** (`/g/:joinToken`): fetch metadata → passphrase prompt →
+   `/unlock` (store session) → add-self form (Contact Picker where available →
+   manual; PLAN §11) → store member token in `localStorage` → "Add everyone"
+   (vcard) + "Add new since last time" (delta via stored `last_pulled_at`).
+   Surface the "open in Safari, not an in-app webview" hint.
+3. **Admin page** (`/a/:adminToken`): member list with remove, rename, change
+   passphrase (warn: logs everyone out), delete group.
+4. **Deploy the Functions** (`npm run deploy`) + confirm D1 binding; `wrangler
+   tail` to confirm no token/passphrase in logs.
+5. **D1 integration tests** with `@cloudflare/vitest-pool-workers` (Miniflare D1)
+   for the routes (the smoke test is manual; make it automated).
+6. **E2E on a real iPhone** (Safari): unlock, manual add, import full + delta.
+7. Final security pass vs the CLAUDE.md checklist.
 
 ## Known gotchas / reminders
 
@@ -112,6 +129,16 @@ the mobile-first landing page is **live**. API routes + frontend flows follow.
   (Alternative for a future simplification: collapse to one "Worker + static
   assets" deployable, which supports fetch + scheduled + assets in one — would
   diverge from PLAN's "Pages" wording, so left as a noted option, not done.)
+- **API auth conventions (for the frontend):** join token in the URL path;
+  **session** via header `X-Session-Token` (from `/unlock`); **member token** via
+  header `X-Member-Token` for vcard reciprocity, or URL path for `/members/:t`
+  self edit/delete; admin token in the URL path. The create response returns the
+  raw join+admin tokens **once** — the join link CANNOT be reconstructed later
+  (only hashes are stored), so the create UI must surface/save both links.
+- **Local dev:** `./dev.sh` (applies local schema + `wrangler pages dev` on
+  :8788). Smoke test: `curl -s localhost:8788/api/config`.
+- **Functions not deployed yet:** only the static landing page is live; run
+  `npm run deploy` to ship the `/api` (after the CSP/Turnstile `_headers` edit).
 - **PBKDF2 iterations untuned:** `DEFAULT_PBKDF2_ITERS = 100_000` is a starting
   point. MUST measure against the 10ms CPU/req budget on real Workers
   (`wrangler tail`) and tune. Link entropy + tight `/unlock` limit mean extreme
