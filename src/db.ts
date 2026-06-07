@@ -13,6 +13,7 @@ export interface NewGroup {
   pass: PassRecord
   nowIso: string
   creatorIpHash: string | null
+  joinEnc: string | null
 }
 
 export interface NewMember {
@@ -51,8 +52,8 @@ export async function insertGroup(db: D1Database, g: NewGroup): Promise<number> 
     .prepare(
       `INSERT INTO groups
          (join_hash, admin_hash, name, pass_hash, pass_salt, pass_iters,
-          pass_version, created_at, last_active_at, creator_ip_hash)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?7, ?8)
+          pass_version, created_at, last_active_at, creator_ip_hash, join_enc)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?7, ?8, ?9)
        RETURNING id`,
     )
     .bind(
@@ -64,6 +65,7 @@ export async function insertGroup(db: D1Database, g: NewGroup): Promise<number> 
       g.pass.iters,
       g.nowIso,
       g.creatorIpHash,
+      g.joinEnc,
     )
     .first<{ id: number }>()
   if (!row) throw new Error('insertGroup: no id returned')

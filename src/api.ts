@@ -36,6 +36,7 @@ import { checkRateLimit, RULES, MEMBER_CAP, hashIp } from './ratelimit'
 import { buildVCardCollection, vcardFilename, type VCardMember } from './vcard'
 import { parseCreate, parseMember, parseAdminPatch } from './validation'
 import { verifyTurnstile } from './turnstile'
+import { encryptJoinToken, decryptJoinToken } from './joinlink'
 
 type Ctx = Context<{ Bindings: Env }>
 
@@ -130,10 +131,11 @@ app.post('/groups', async (c) => {
 
   const joinToken = generateToken('join')
   const adminToken = generateToken('admin')
-  const [joinHash, adminHash, pass] = await Promise.all([
+  const [joinHash, adminHash, pass, joinEnc] = await Promise.all([
     hashToken(joinToken),
     hashToken(adminToken),
     hashPassphrase(parsed.value.passphrase),
+    encryptJoinToken(joinToken, adminToken), // lets the admin re-share the link later
   ])
   const ts = nowIso()
   await insertGroup(c.env.DB, {
@@ -143,6 +145,7 @@ app.post('/groups', async (c) => {
     pass,
     nowIso: ts,
     creatorIpHash: ipHash,
+    joinEnc,
   })
 
   const o = origin(c)
@@ -315,10 +318,20 @@ app.get('/admin/:adminToken', async (c) => {
   const group = await getGroupByAdminHash(c.env.DB, await hashToken(t))
   if (!group) return generic404(c)
   const { results } = await listMembers(c.env.DB, group.id, null)
+
+  // Re-share: recover the join link by decrypting with the admin token from the
+  // URL. Null for groups created before join_enc existed, or if decryption fails.
+  let join: { url: string } | null = null
+  if (group.join_enc) {
+    const joinToken = await decryptJoinToken(group.join_enc, t)
+    if (joinToken) join = { url: `${origin(c)}/g/${joinToken}` }
+  }
+
   return c.json({
     name: group.name,
     passphraseRequired: group.pass_hash !== null,
     createdAt: group.created_at,
+    join,
     members: results.map((m) => ({
       id: m.id,
       fn: m.fn,

@@ -31,12 +31,12 @@ if [ ! -f .dev.vars ]; then
   echo "    (Turnstile TEST keys are prefilled — they always pass locally.)"
 fi
 
-# 3. local D1 schema (idempotent — migration uses CREATE TABLE IF NOT EXISTS)
-echo "• Applying schema to local D1…"
-if npx wrangler d1 execute roll-call-db --local --file=./migrations/0001_init.sql >/dev/null 2>&1; then
+# 3. local D1 schema (wrangler migrations — tracked + idempotent)
+echo "• Applying migrations to local D1…"
+if npx wrangler d1 migrations apply roll-call-db --local >/dev/null 2>&1; then
   echo "  ↳ schema ready (local state in .wrangler/)"
 else
-  echo "  ↳ ⚠ schema apply failed — continuing; retry with 'npm run db:local'"
+  echo "  ↳ ⚠ migrations failed — continuing; retry with 'npm run db:local'"
 fi
 
 # 4. launch (frontend + /api + local D1 + .dev.vars)

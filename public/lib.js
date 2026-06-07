@@ -127,6 +127,33 @@ export function friendlyError(err) {
   return map[code] || 'Something went wrong. Please try again.'
 }
 
+/** Render an SVG QR code for `text` (requires /vendor/qrcode.min.js loaded). */
+export function qrSvg(text) {
+  try {
+    const q = window.qrcode(0, 'M')
+    q.addData(text)
+    q.make()
+    return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true })
+  } catch {
+    return ''
+  }
+}
+
+/** A reusable "copy this link" row: <code>url</code> + a Copy button. */
+export function linkRow(url, label = 'link') {
+  const btn = el(
+    'button',
+    { class: 'btn btn--ghost btn--sm', type: 'button', 'aria-label': `Copy ${label}` },
+    ['Copy'],
+  )
+  btn.addEventListener('click', async () => {
+    const ok = await copy(url)
+    toast(ok ? 'Copied!' : 'Copy failed — long-press the link.', ok ? 'ok' : 'err')
+    if (ok) btn.textContent = 'Copied'
+  })
+  return el('div', { class: 'linkrow' }, [el('code', { title: url }, [url]), btn])
+}
+
 /** Friendly human readable date. */
 export function fmtDate(iso) {
   try {

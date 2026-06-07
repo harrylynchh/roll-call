@@ -123,6 +123,13 @@ integration tests, and e2e on a real iPhone.
 - ✅ `.github/workflows/ci.yml` (typecheck+test on PRs) and `deploy.yml`
   (auto-deploy Pages + cron Worker on push to `main`).
 - ✅ Verified all three pages render against local D1 (screenshots reviewed).
+- ✅ **Admin re-share** of the join link: `migrations/0002_join_enc.sql` adds
+  `join_enc` = AES-256-GCM(join token) keyed by the admin token (`joinlink.ts`,
+  +5 tests). Create encrypts it; admin `GET` decrypts with the admin token and
+  returns the join link; admin page shows it (QR + copy). DB-dump guarantee
+  preserved (key not in DB) — invariant refined in CLAUDE.md/PLAN §5,§8.
+- ✅ Switched D1 setup to **`wrangler d1 migrations apply`** (tracked, idempotent)
+  — `db:local`/`db:remote`/`dev.sh` updated; both DBs migrated (local + remote).
 
 ## Next up (ordered) — deploy verify → tests → e2e
 
@@ -149,8 +156,12 @@ integration tests, and e2e on a real iPhone.
   self edit/delete; admin token in the URL path. The create response returns the
   raw join+admin tokens **once** — the join link CANNOT be reconstructed later
   (only hashes are stored), so the create UI must surface/save both links.
-- **Local dev:** `./dev.sh` (applies local schema + `wrangler pages dev` on
+- **Local dev:** `./dev.sh` (applies local migrations + `wrangler pages dev` on
   :8788). Smoke test: `curl -s localhost:8788/api/config`.
+- **Migrations are NOT run by CI** — `deploy.yml` ships code only. After adding a
+  migration, apply it manually: `npm run db:remote` (and `db:local`). Both DBs are
+  on `0002` now. Add a `d1 migrations apply --remote` step to CI later if wanted
+  (needs the API token to also have D1:Edit).
 - **Pages `_redirects` for token routes:** destinations MUST be the extensionless
   clean URLs (`/join`, `/admin`), NOT `*.html` (clean-URL 308 strips the ext and
   drops the token) and NOT `/g/index.html` (clean-URL strip → `/g/` re-matches

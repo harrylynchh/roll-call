@@ -32,7 +32,14 @@ beyond these three files and the code. If a decision changes the design, update
 
 - **Tokens:** ≥128 bits CSPRNG, base64url. Never sequential/guessable client-
   visible IDs.
-- **Store only `SHA-256(token)`** in D1. Raw tokens live only in URLs.
+- **Store only `SHA-256(token)`** in D1. Raw tokens live only in URLs — with ONE
+  deliberate exception: the join token is ALSO stored **encrypted (AES-256-GCM)
+  under a key derived from the admin token** (`groups.join_enc`, see
+  `joinlink.ts`) so the admin can re-share the join link. The decryption key is
+  the admin token, which is **never** in the DB (only its hash), so a dump still
+  yields no working links. Never store a token in plaintext, nor encrypted under
+  a key that lives in the DB (e.g. `SERVER_SECRET` alone — that would regress the
+  dump guarantee).
 - **Passphrase:** PBKDF2-HMAC-SHA256 via WebCrypto, **per-group random salt**,
   iteration count stored per group, **constant-time compare**. Never store/log/
   echo the plaintext. It travels only in the `/unlock` POST body. Tune
@@ -72,7 +79,7 @@ beyond these three files and the code. If a decision changes the design, update
 ```bash
 npm install
 npx wrangler dev                       # local dev
-npx wrangler d1 execute DB --file=./migrations/0001.sql   # schema (local: add --local)
+npx wrangler d1 migrations apply roll-call-db --local      # apply migrations (--remote for prod)
 npx wrangler pages deploy ./dist       # deploy frontend + functions
 npx wrangler tail                      # live logs (confirm NO token/passphrase appears!)
 ```
