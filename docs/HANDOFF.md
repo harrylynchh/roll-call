@@ -4,13 +4,34 @@
 > next session reads `PLAN.md` (design) + `CLAUDE.md` (rules) + this file and
 > assumes nothing else. Keep "Next up" ordered and honest.
 
-_Last updated: 2026-06-07 by build-session-1 (scaffold + core modules)_
+_Last updated: 2026-06-07 by build-session-1 (foundation + infra provisioned + landing page deployed)_
 
 ## Status
 
-**Phase: scaffold + core security modules landing.** See "Next up" for the live
-cursor. Backend foundation (config, schema, crypto/security helpers + unit
-tests) is being built this session; API routes and frontend follow.
+**Phase: foundation built & deployed; API routes are the next code.** Backend
+security modules done + tested (66 tests). Cloudflare infra is provisioned and
+the mobile-first landing page is **live**. API routes + frontend flows follow.
+
+## Live infra (provisioned 2026-06-07)
+
+- **GitHub:** https://github.com/harrylynchh/roll-call (branch `main`).
+- **Pages project:** `roll-call` → **https://roll-call-77h.pages.dev** (landing
+  page live; `_headers` CSP/HSTS verified applied).
+- **D1:** `roll-call-db` id `9f5bbd75-454d-4441-a7f8-b195eac03709` — schema
+  applied **local + remote**. Same id wired into both wrangler.toml files.
+- **Secrets set:** `SERVER_SECRET` on the Pages project (production). Local
+  `.dev.vars` has its own dev `SERVER_SECRET` + Turnstile **test** keys.
+- **Cron Worker:** `roll-call-cron` deployed, bound to the same D1,
+  schedule `0 4 * * *` (daily purge).
+
+### ⚠️ Still needs the human (not blocking until the create-group API lands)
+- **Create a Turnstile widget** (dashboard → Turnstile) for hostnames
+  `roll-call-77h.pages.dev` + `localhost`. Then:
+  - put the **site key** into `wrangler.toml [vars] TURNSTILE_SITEKEY` (replace
+    the placeholder) and redeploy, and
+  - `npx wrangler pages secret put TURNSTILE_SECRET --project-name roll-call`.
+- After Functions exist, confirm the **D1 binding** `DB → roll-call-db` shows on
+  the Pages project (dashboard → Pages → roll-call → Settings → Functions).
 
 ## Decisions locked
 
@@ -118,9 +139,11 @@ tests) is being built this session; API routes and frontend follow.
 ## Environment / secrets needed
 
 - `SERVER_SECRET` — salt for IP hashing + HMAC key for session tokens.
-- `TURNSTILE_SECRET` — server-side Turnstile verification.
-- Turnstile site key (public) for the frontend.
-- D1 database created and bound as `DB` in `wrangler.toml`.
+  ✅ set in prod (Pages secret) + local `.dev.vars`.
+- `TURNSTILE_SECRET` — server-side Turnstile verification. ⛔ pending widget.
+- Turnstile site key (public) for the frontend. ⛔ pending widget
+  (`wrangler.toml [vars] TURNSTILE_SITEKEY` still placeholder; test key in `.dev.vars`).
+- D1 `roll-call-db` created + bound as `DB`. ✅ schema applied local + remote.
 
 ## Open questions for the human
 

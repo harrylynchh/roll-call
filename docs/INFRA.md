@@ -1,5 +1,13 @@
 # INFRA.md — One-time Cloudflare setup (manual)
 
+> **Status (2026-06-07): mostly provisioned.** D1 `roll-call-db` created + schema
+> applied (local+remote); Pages project `roll-call` deployed at
+> **https://roll-call-77h.pages.dev**; `SERVER_SECRET` set (prod + local);
+> cron Worker `roll-call-cron` deployed. **Remaining:** create the Turnstile
+> widget and set `TURNSTILE_SITEKEY` + `TURNSTILE_SECRET` (step 4 & 6) — only
+> needed once the create-group API lands. Steps below kept as the canonical
+> runbook / for rebuilding from scratch.
+
 Everything here is account-bound or interactive, so **you** run it. Steps marked
 🤝 I can drive for you in this session once you've done step 1 (just approve the
 commands, or run them yourself with a leading `!`). Steps marked 🧑 are
