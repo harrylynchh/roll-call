@@ -1,18 +1,12 @@
 # Roll Call
 
-Link-based **group contact exchange** for small group chats. An organizer creates
-a group (protected by a passphrase), shares the link into the GC, each member
-opens it, enters the passphrase, submits their own phone contact, and anyone in
-the group can download a single `.vcf` that imports the whole roster at once —
-or pull just the people added since they last synced.
+Link-based **group contact exchange** for small group chats. An organizer
+creates a group (protected by a passphrase), shares the link into the GC, each
+member opens it, enters the passphrase, submits their own phone contact, and
+anyone in the group can download a single `.vcf` that imports the whole roster
+at once or pull just the people added since they last synced.
 
-Phone-only. No accounts, no SMS, no email. All on the Cloudflare free tier.
-
-> **Design & rules live in `docs/`** — read those first:
-> - [`docs/PLAN.md`](docs/PLAN.md) — architecture & security model (source of truth)
-> - [`docs/CLAUDE.md`](docs/CLAUDE.md) — working rules & security invariants
-> - [`docs/HANDOFF.md`](docs/HANDOFF.md) — current build state & next steps
-> - [`docs/INFRA.md`](docs/INFRA.md) — **one-time Cloudflare setup you run by hand**
+Phone-only. No accounts, no SMS, no email.
 
 ## Architecture
 
@@ -20,13 +14,14 @@ Phone-only. No accounts, no SMS, no email. All on the Cloudflare free tier.
 - **Pages Functions** — the `/api` (`functions/`), a Hono app.
 - **D1** (SQLite) — primary store (`migrations/0001_init.sql`).
 - **Turnstile** — gates group creation.
-- **Cron Worker** — separate Worker (`worker-cron/`) for the daily purge, sharing
-  the same D1 (Pages Functions can't run cron).
-- **WebCrypto** — token hashing, PBKDF2 passphrase, HMAC sessions. No crypto deps.
+- **Cron Worker** — separate Worker (`worker-cron/`) for the daily purge,
+  sharing the same D1 (Pages Functions can't run cron).
+- **WebCrypto** — token hashing, PBKDF2 passphrase, HMAC sessions. No crypto
+  deps.
 
-Capability-URL auth: independent **join / admin / member** tokens (hashed in D1),
-plus an always-required per-group passphrase (PBKDF2) and stateless HMAC session
-tokens. Reciprocity: you must add yourself before the roster `.vcf` is served.
+Capability-URL auth: independent **join / admin / member** tokens (hashed in
+D1), plus an always-required per-group passphrase (PBKDF2) and stateless HMAC
+session tokens. You must add yourself before the roster `.vcf` is served.
 
 ## Layout
 
@@ -51,9 +46,6 @@ npm run dev                         # wrangler pages dev (frontend + /api)
 npm test                            # vitest (pure security helpers)
 npm run typecheck                   # tsc --noEmit
 ```
-
-First-time Cloudflare setup (accounts, D1, Turnstile, secrets, deploy) is in
-**[`docs/INFRA.md`](docs/INFRA.md)**.
 
 ## Status
 
