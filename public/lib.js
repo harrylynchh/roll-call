@@ -154,6 +154,40 @@ export function linkRow(url, label = 'link') {
   return el('div', { class: 'linkrow' }, [el('code', { title: url }, [url]), btn])
 }
 
+/** Strip control + zero-width characters from user input (client-side hygiene;
+    the server still validates/bounds everything). */
+export function sanitizeText(s) {
+  let out = ''
+  for (const ch of String(s)) {
+    const c = ch.codePointAt(0)
+    // drop C0/C1 controls, DEL, zero-width chars, and BOM
+    if (c < 0x20 || c === 0x7f || (c >= 0x200b && c <= 0x200d) || c === 0xfeff) continue
+    out += ch
+  }
+  return out
+}
+
+/** Progressive phone mask. US numbers → "(555) 123-4567"; a leading "+" keeps
+    international mode (just "+" and digits). Cosmetic — the server normalizes to
+    E.164 on submit regardless. */
+export function formatPhone(value) {
+  const raw = String(value)
+  if (raw.trimStart().startsWith('+')) return '+' + raw.replace(/[^\d]/g, '')
+  const d = raw.replace(/\D/g, '').slice(0, 10)
+  if (d.length <= 3) return d
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+}
+
+/** Attach live input hygiene: phone mask for tel fields, control-char strip
+    otherwise. Keeps the caret at the end (fine for these short fields). */
+export function attachInputGuard(input, { phone = false } = {}) {
+  input.addEventListener('input', () => {
+    const next = phone ? formatPhone(input.value) : sanitizeText(input.value)
+    if (next !== input.value) input.value = next
+  })
+}
+
 /** Friendly human readable date. */
 export function fmtDate(iso) {
   try {

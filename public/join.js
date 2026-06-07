@@ -1,4 +1,4 @@
-import { $, el, api, toast, store, groupState, friendlyError, fmtDate } from '/lib.js'
+import { $, el, api, toast, groupState, friendlyError, fmtDate, attachInputGuard } from '/lib.js'
 
 const joinToken = location.pathname.split('/').filter(Boolean).pop() || ''
 const root = $('#app-root')
@@ -104,18 +104,20 @@ function renderForm({ mode }) {
       autocomplete: opts.autocomplete || 'off',
       placeholder: opts.placeholder || '',
     })
+    attachInputGuard(input, { phone: !!opts.phone })
     return { input, field: el('div', { class: 'field' }, [labelEl(id, label, opts.optional), input]) }
   }
 
   const given = f('given', 'First name', { value: mine.givenName, maxlength: 40, autocomplete: 'given-name', placeholder: 'Ada' })
   const family = f('family', 'Last name', { value: mine.familyName, maxlength: 40, optional: true, autocomplete: 'family-name', placeholder: 'Lovelace' })
-  const phone1 = f('phone1', 'Mobile number', { value: (mine.phones && mine.phones[0]) || '', type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '(555) 123-4567' })
-  const phone2 = f('phone2', 'Second number', { value: (mine.phones && mine.phones[1]) || '', type: 'tel', inputmode: 'tel', optional: true, placeholder: 'optional' })
+  const phone1 = f('phone1', 'Mobile number', { value: (mine.phones && mine.phones[0]) || '', type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '(555) 123-4567', phone: true })
+  const phone2 = f('phone2', 'Second number', { value: (mine.phones && mine.phones[1]) || '', type: 'tel', inputmode: 'tel', optional: true, placeholder: 'optional', phone: true })
   const nickname = f('nickname', 'Nickname', { value: mine.nickname, maxlength: 40, optional: true })
   const org = f('org', 'Company / team', { value: mine.org, maxlength: 80, optional: true })
   const title = f('title', 'Role / title', { value: mine.title, maxlength: 80, optional: true })
   const url = f('url', 'Website', { value: mine.url, maxlength: 200, type: 'url', optional: true, placeholder: 'https://' })
   const note = el('textarea', { class: 'input', id: 'note', maxlength: 500, rows: 2, placeholder: 'optional' }, [mine.note || ''])
+  attachInputGuard(note)
 
   const more = el('details', { class: 'disclosure' }, [
     el('summary', {}, ['More details (optional)']),
@@ -252,9 +254,9 @@ function renderMember() {
       el('hr', { class: 'divider' }),
       actions,
       el('p', { class: 'note-hint' }, [
-        'On iPhone, open this page in ',
+        'Open this page in ',
         el('strong', {}, ['Safari']),
-        ' (not inside Instagram/Messages). After you tap “Add everyone”, we’ll show you the last few taps to add them all.',
+        ' (not inside Instagram/Messages). Tap “Add everyone” and you’ll get download, iCloud, and one-at-a-time options.',
       ]),
     ]),
     el('div', { class: 'card stack' }, [
@@ -264,15 +266,10 @@ function renderMember() {
   )
 }
 
-function pullVcard(since) {
-  return isAppleMobile() ? pullVcardApple(since) : downloadVcard(since)
-}
-
-// iOS/iPadOS: Safari can't batch-import a multi-vCard, and on many iOS builds the
-// Files → Share → Contacts batch path is broken too. The two things that DO work
-// everywhere: iCloud.com bulk import, and single-contact import. So fetch the
-// roster, split it into cards, and offer both.
-async function pullVcardApple(since) {
+// Fetch the roster (.vcf), split into cards, and show import options. Works on
+// EVERY device — iOS Safari can't batch-import (Apple's limit), so we always
+// offer the download + iCloud bulk import + a per-contact list.
+async function pullVcard(since) {
   const cursor = new Date().toISOString()
   let res
   try {
@@ -296,7 +293,7 @@ async function pullVcardApple(since) {
   groupState.patch(joinToken, { lastPulledAt: cursor })
   const cards = splitCards(text)
   if (cards.length === 0) return toast('Nobody new since last time.', 'ok')
-  renderIosImport(text, cards)
+  renderImportHelp(text, cards)
 }
 
 // Split a multi-vCard document into [{fn, card}] and pull the display name from FN.
@@ -329,93 +326,52 @@ function downloadText(text, name) {
     URL.revokeObjectURL(url)
   }, 1500)
 }
-function downloadBtn(label, text, name) {
-  const b = el('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, [label])
+function downloadBtn(label, text, name, cls) {
+  const b = el('button', { class: `btn ${cls || 'btn--ghost btn--sm'}`, type: 'button' }, [label])
   b.addEventListener('click', () => downloadText(text, name))
   return b
 }
-function cardDataUri(card) {
-  return 'data:text/vcard;charset=utf-8,' + encodeURIComponent(card.endsWith('\r\n') ? card : card + '\r\n')
-}
 
-// iOS import screen: iCloud bulk (guaranteed) + add-one-at-a-time (single-contact
-// import, which works on every build).
-function renderIosImport(fullText, cards) {
+// Universal import screen: download everyone, import to iCloud (bulk), or add
+// one-at-a-time. Single-contact download → "Create New Contact" works on every
+// iPhone; iCloud is the guaranteed bulk path.
+function renderImportHelp(fullText, cards) {
   const n = cards.length
   root.replaceChildren(
     header(`${n} ${plural(n, 'person')} to add`),
 
     el('div', { class: 'card stack' }, [
-      el('h2', { class: 'section-title' }, [`Add all ${n} at once`]),
-      el('p', { class: 'muted' }, [
-        "iPhone Safari can't add multiple contacts in one tap (Apple's limit) — iCloud can, in a few taps:",
+      el('h2', { class: 'section-title' }, ['Get the contacts']),
+      downloadBtn(`Download all ${n} (.vcf)`, fullText, meta.name, 'btn--primary btn--full'),
+      el('p', { class: 'hint' }, [
+        'On a computer: open the file to import into Contacts / Outlook / Google. On iPhone it saves to Files — then use iCloud below.',
       ]),
+    ]),
+
+    el('div', { class: 'card stack' }, [
+      el('h3', { class: 'card-h' }, ['Best on iPhone — import via iCloud']),
       el('ol', { class: 'howto' }, [
-        el('li', {}, [downloadBtn('Download the .vcf', fullText, meta.name)]),
+        el('li', {}, ['Tap ', el('strong', {}, ['Download']), ' above (it saves to Files).']),
         el('li', {}, ['Open ', el('strong', {}, ['iCloud.com/contacts']), ' (button below) and sign in.']),
-        el('li', {}, ['Click the ', el('strong', {}, ['⚙ gear → Import vCard']), '.']),
-        el('li', {}, [`Pick the file you just downloaded — all ${n} sync to your iPhone.`]),
+        el('li', {}, ['Click ', el('strong', {}, ['⚙ → Import vCard']), ' and pick the file — all ', `${n}`, ' sync to your iPhone.']),
       ]),
-      el('a', { class: 'btn btn--primary btn--full', href: 'https://www.icloud.com/contacts', target: '_blank', rel: 'noopener' }, ['Open iCloud.com Contacts ↗']),
+      el('a', { class: 'btn btn--ghost btn--full', href: 'https://www.icloud.com/contacts', target: '_blank', rel: 'noopener' }, ['Open iCloud.com Contacts ↗']),
     ]),
 
     el('details', { class: 'card disclosure' }, [
-      el('summary', {}, ['Or add them one at a time (no iCloud)']),
+      el('summary', {}, ['Or add them one at a time']),
       el('div', { class: 'stack' }, [
-        el('p', { class: 'muted' }, ['Tap a name → ', el('strong', {}, ['Create New Contact']), ' → back here for the next.']),
+        el('p', { class: 'muted' }, ['Tap a name to download just that contact, then open it and tap ', el('strong', {}, ['Create New Contact']), '.']),
         el(
           'ul',
           { class: 'mlist' },
-          cards.map((c) =>
-            el('li', {}, [
-              el('div', { class: 'm-name' }, [c.fn]),
-              el('a', { class: 'btn btn--ghost btn--sm', href: cardDataUri(c.card) }, ['Add']),
-            ]),
-          ),
+          cards.map((c) => el('li', {}, [el('div', { class: 'm-name' }, [c.fn]), downloadBtn('Add', c.card, c.fn)])),
         ),
       ]),
     ]),
 
     el('button', { class: 'btn btn--ghost btn--full', type: 'button', onclick: () => renderMember() }, ['← Back to group']),
   )
-}
-
-// Desktop / Android: download the .vcf (their import handles multiple contacts).
-async function downloadVcard(since) {
-  const cursor = new Date().toISOString()
-  const qs = since ? `?since=${encodeURIComponent(since)}` : ''
-  let res
-  try {
-    res = await fetch(`/api/groups/${encodeURIComponent(joinToken)}/vcard${qs}`, {
-      headers: { 'X-Session-Token': state.session, 'X-Member-Token': state.memberToken },
-    })
-  } catch {
-    return toast('Network error — try again.', 'err')
-  }
-  if (res.status === 401) {
-    groupState.patch(joinToken, { session: null })
-    toast('Session expired — re-enter the passphrase.', 'err')
-    return render()
-  }
-  if (!res.ok) {
-    const d = await res.json().catch(() => null)
-    return toast(friendlyError({ message: d && d.error, data: d }), 'err')
-  }
-  const blob = await res.blob()
-  if (blob.size === 0) {
-    groupState.patch(joinToken, { lastPulledAt: cursor })
-    return toast('Nobody new since last time.', 'ok')
-  }
-  downloadBlob(blob, `${safeName(meta.name)}.vcf`)
-  groupState.patch(joinToken, { lastPulledAt: cursor })
-  refreshState()
-  toast('Downloaded — open the file to import.', 'ok')
-  renderMember()
-}
-
-function isAppleMobile() {
-  const ua = navigator.userAgent || ''
-  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
 }
 
 async function removeSelf() {
@@ -437,16 +393,6 @@ function labelEl(id, text, optional) {
     el('label', { for: id }, [text]),
     optional ? el('span', { class: 'opt' }, ['  · optional']) : null,
   ])
-}
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob)
-  const a = el('a', { href: url, download: filename, rel: 'noopener' })
-  document.body.append(a)
-  a.click()
-  setTimeout(() => {
-    a.remove()
-    URL.revokeObjectURL(url)
-  }, 6000)
 }
 function safeName(name) {
   return (name || 'contacts').replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/\s+/g, '_').slice(0, 40) || 'contacts'

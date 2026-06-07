@@ -1,8 +1,9 @@
-import { $, el, api, toast, friendlyError, qrSvg, linkRow } from '/lib.js'
+import { $, el, api, toast, friendlyError, qrSvg, linkRow, attachInputGuard } from '/lib.js'
 
 const form = $('#create-form')
 const submitBtn = $('#submit')
 const result = $('#result')
+attachInputGuard($('#name')) // strip control/zero-width chars as the user types
 let turnstileToken = ''
 let widgetId = null
 
