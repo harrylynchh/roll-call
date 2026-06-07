@@ -289,15 +289,13 @@ app.get('/groups/:joinToken/vcard', async (c) => {
   if (!group) return generic404(c)
 
   let since: string | null
-  let viaTicket = false
   const ticketParam = c.req.query('t')
   if (ticketParam) {
-    // Ticketed path (iOS navigation). The ticket already encodes a passed
-    // session + reciprocity check at issue time. Bad/expired ticket → generic 404.
+    // Ticketed path (iOS download). The ticket already encodes a passed session +
+    // reciprocity check at issue time. Bad/expired ticket → generic 404.
     const tk = await verifyVcardTicket(c.env.SERVER_SECRET, ticketParam, { nowSeconds: nowS() })
     if (!tk || tk.groupId !== group.id) return generic404(c)
     since = tk.since || null
-    viaTicket = true
   } else {
     if (!(await requireSession(c, group))) return c.json({ error: 'unauthorized' }, 401)
     if (!(await reciprocityMember(c, group))) return c.json({ error: 'reciprocity_required' }, 403)
@@ -314,9 +312,10 @@ app.get('/groups/:joinToken/vcard', async (c) => {
     status: 200,
     headers: {
       'Content-Type': 'text/vcard; charset=utf-8',
-      // inline for the navigated ticket path (iOS opens the import); attachment
-      // for the header/blob path (desktop/Android download).
-      'Content-Disposition': `${viaTicket ? 'inline' : 'attachment'}; filename="${vcardFilename(group.name)}"`,
+      // ALWAYS attachment. `inline` makes iOS open Quick Look, which only ever
+      // shows the FIRST card; an attachment download lands in Files, from where
+      // the user reaches Contacts' batch importer (Share → Contacts → Add All).
+      'Content-Disposition': `attachment; filename="${vcardFilename(group.name)}"`,
     },
   })
 })

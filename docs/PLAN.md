@@ -249,9 +249,16 @@ vCard 3.0; fold long lines if needed.
 pull calls `…/vcard?since=<cursor>` → only `updated_at > since` → import → bump
 cursor. Using `updated_at` re-delivers people who changed their number.
 
-**Delivery note (no SMS):** nothing is transmitted. On mobile, tapping the
-served `.vcf` opens the native import sheet. Warn users to open the link in
-Safari/Chrome, not an in-app webview (which often won't trigger the sheet).
+**Delivery note (no SMS):** nothing is transmitted; the client downloads the
+`.vcf`. **iOS reality (researched, high-confidence):** Safari/Quick Look CANNOT
+batch-import a multi-contact `.vcf` — it only ever shows the first card and has
+no "Add All". The "Add All N Contacts" batch importer lives in Contacts.app and
+is reachable ONLY via the iOS Share Sheet. So on iOS we serve the file as an
+`attachment` (lands in Files) and guide the user: **Files → tap the file → Share
+→ Contacts → "Add All N Contacts"**, with **iCloud.com → Import vCard** as a
+guaranteed fallback. (Android/desktop import all from the download directly.)
+`inline`/navigation does NOT help — it's what triggers the single-card Quick Look.
+Still warn users to open in Safari/Chrome, not an in-app webview.
 
 ## 11. Contact import (filling the form) — progressive enhancement
 

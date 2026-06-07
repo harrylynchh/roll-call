@@ -869,3 +869,19 @@ textarea.input {
     animation: none;
   }
 }
+
+/* numbered how-to list (iOS import steps) */
+.howto {
+  margin: 0.2rem 0 0.4rem;
+  padding-left: 1.4rem;
+  display: grid;
+  gap: 0.55rem;
+}
+.howto li {
+  padding-left: 0.3rem;
+  line-height: 1.45;
+}
+.howto li::marker {
+  color: var(--accent);
+  font-weight: 700;
+}

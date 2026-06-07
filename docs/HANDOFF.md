@@ -158,13 +158,20 @@ integration tests, and e2e on a real iPhone.
   (only hashes are stored), so the create UI must surface/save both links.
 - **Local dev:** `./dev.sh` (applies local migrations + `wrangler pages dev` on
   :8788). Smoke test: `curl -s localhost:8788/api/config`.
-- **iOS multi-vCard import:** a *downloaded* multi-contact `.vcf` opens in Quick
-  Look and shows only the FIRST card (no "Add All"). Fix (`join.js`): on iOS, POST
-  `/api/.../vcard-ticket` (session+member auth) → navigate to the returned
-  short-lived `?t=<ticket>` URL, which serves `text/vcard` **inline** so Safari
-  opens the native "Add All Contacts" import. Desktop/Android keep the blob
-  download. Ticket = HMAC-signed, ~2 min, single-purpose (`session.ts`); reciprocity
-  is checked at issue time, so the navigated URL carries no long-lived token.
+- **iOS multi-vCard import (RESEARCHED, high-confidence):** Safari/Quick Look
+  **cannot** batch-import a multi-contact `.vcf` — it only shows the FIRST card,
+  no "Add All", and NO MIME/`Content-Disposition` (`inline` vs `attachment`) trick
+  changes that. `inline` is what triggers the single-card Quick Look. The batch
+  importer is in Contacts.app, reachable only via the iOS **Share Sheet**. So on
+  iOS we DOWNLOAD the file (attachment) → it lands in Files → the app shows
+  steps: **Files → tap file → Share → Contacts → "Add All N"**, + an **iCloud.com
+  → Import vCard** fallback (`join.js` `renderIosHelp`). Desktop/Android keep the
+  blob download (their import handles multiple). The `/vcard-ticket` endpoint is
+  retained: it gives iOS an auth'd same-origin attachment URL to download without
+  custom headers (ticket = HMAC-signed, ~2 min, single-purpose). Sources:
+  developer.apple.com/forums/thread/124193, macreports/univik vcf-import guides,
+  Apple Discussions 255186839. (Earlier "navigate to inline text/vcard" attempt
+  was WRONG — that's the Quick Look path.)
 - **Migrations are NOT run by CI** — `deploy.yml` ships code only. After adding a
   migration, apply it manually: `npm run db:remote` (and `db:local`). Both DBs are
   on `0002` now. Add a `d1 migrations apply --remote` step to CI later if wanted
