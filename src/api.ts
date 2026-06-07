@@ -31,7 +31,13 @@ import {
 } from './db'
 import { generateToken, hashToken, isWellFormedToken, generateUid } from './tokens'
 import { hashPassphrase, verifyPassphrase, type PassRecord } from './passphrase'
-import { createSessionForGroup, verifySessionForGroup, SESSION_TTL_SECONDS } from './session'
+import {
+  createSessionForGroup,
+  verifySessionForGroup,
+  SESSION_TTL_SECONDS,
+  issueVcardTicket,
+  verifyVcardTicket,
+} from './session'
 import { checkRateLimit, RULES, MEMBER_CAP, hashIp } from './ratelimit'
 import { buildVCardCollection, vcardFilename, type VCardMember } from './vcard'
 import { parseCreate, parseMember, parseAdminPatch } from './validation'
@@ -238,35 +244,79 @@ app.post('/groups/:joinToken/members', async (c) => {
   return c.json({ memberToken, uid }, 201)
 })
 
-// ---- vcard (session + reciprocity + delta) ----------------------------------
+// Reciprocity gate shared by /vcard (header path) and /vcard-ticket: the caller
+// must hold a member token belonging to THIS group. Returns the member or null.
+async function reciprocityMember(c: Ctx, group: GroupRow): Promise<MemberRow | null> {
+  const mt = c.req.header('X-Member-Token') || ''
+  if (!isWellFormedToken(mt, 'member')) return null
+  const requester = await getMemberByHash(c.env.DB, await hashToken(mt))
+  return requester && requester.group_id === group.id ? requester : null
+}
 
-app.get('/groups/:joinToken/vcard', async (c) => {
+// ---- vcard download ticket (for iOS navigation → native "Add All" import) ----
+// POST with session + member-token headers; returns a short-lived URL the client
+// can navigate to so Safari opens the text/vcard import sheet. `{empty:true}` when
+// a delta pull has nobody new (so the client avoids opening an empty card).
+app.post('/groups/:joinToken/vcard-ticket', async (c) => {
   const t = c.req.param('joinToken')
   if (!isWellFormedToken(t, 'join')) return generic404(c)
   const group = await getGroupByJoinHash(c.env.DB, await hashToken(t))
   if (!group) return generic404(c)
   if (!(await requireSession(c, group))) return c.json({ error: 'unauthorized' }, 401)
+  const requester = await reciprocityMember(c, group)
+  if (!requester) return c.json({ error: 'reciprocity_required' }, 403)
 
-  // Reciprocity: the requester must hold a member token belonging to THIS group.
-  const mt = c.req.header('X-Member-Token') || ''
-  if (!isWellFormedToken(mt, 'member')) return c.json({ error: 'reciprocity_required' }, 403)
-  const requester = await getMemberByHash(c.env.DB, await hashToken(mt))
-  if (!requester || requester.group_id !== group.id) {
-    return c.json({ error: 'reciprocity_required' }, 403)
+  const body = (await c.req.json().catch(() => null)) as { since?: unknown } | null
+  const since = sanitizeSince(typeof body?.since === 'string' ? body.since : undefined) || ''
+
+  const { results } = await listMembers(c.env.DB, group.id, since || null)
+  if (results.length === 0) return c.json({ empty: true })
+
+  const ticket = await issueVcardTicket(c.env.SERVER_SECRET, {
+    groupId: group.id,
+    memberId: requester.id,
+    since,
+    nowSeconds: nowS(),
+  })
+  return c.json({ url: `${origin(c)}/api/groups/${t}/vcard?t=${encodeURIComponent(ticket)}` })
+})
+
+// ---- vcard (session+reciprocity headers, OR a ?t=<ticket>) + delta ----------
+app.get('/groups/:joinToken/vcard', async (c) => {
+  const t = c.req.param('joinToken')
+  if (!isWellFormedToken(t, 'join')) return generic404(c)
+  const group = await getGroupByJoinHash(c.env.DB, await hashToken(t))
+  if (!group) return generic404(c)
+
+  let since: string | null
+  let viaTicket = false
+  const ticketParam = c.req.query('t')
+  if (ticketParam) {
+    // Ticketed path (iOS navigation). The ticket already encodes a passed
+    // session + reciprocity check at issue time. Bad/expired ticket → generic 404.
+    const tk = await verifyVcardTicket(c.env.SERVER_SECRET, ticketParam, { nowSeconds: nowS() })
+    if (!tk || tk.groupId !== group.id) return generic404(c)
+    since = tk.since || null
+    viaTicket = true
+  } else {
+    if (!(await requireSession(c, group))) return c.json({ error: 'unauthorized' }, 401)
+    if (!(await reciprocityMember(c, group))) return c.json({ error: 'reciprocity_required' }, 403)
+    since = sanitizeSince(c.req.query('since'))
   }
 
   const ipHash = await ipHashOf(c, clientIp(c))
   const rl = await checkRateLimit(c.env.DB, RULES.vcard, ipHash, Date.now())
   if (!rl.allowed) return c.json({ error: 'rate_limited' }, 429)
 
-  const since = sanitizeSince(c.req.query('since'))
   const { results } = await listMembers(c.env.DB, group.id, since)
   const vcf = buildVCardCollection(results.map(toVCardMember))
   return new Response(vcf, {
     status: 200,
     headers: {
       'Content-Type': 'text/vcard; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${vcardFilename(group.name)}"`,
+      // inline for the navigated ticket path (iOS opens the import); attachment
+      // for the header/blob path (desktop/Android download).
+      'Content-Disposition': `${viaTicket ? 'inline' : 'attachment'}; filename="${vcardFilename(group.name)}"`,
     },
   })
 })

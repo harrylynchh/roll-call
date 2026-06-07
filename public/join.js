@@ -252,9 +252,11 @@ function renderMember() {
       el('hr', { class: 'divider' }),
       actions,
       el('p', { class: 'note-hint' }, [
-        'On iPhone, open this page in ',
+        'On iPhone: open in ',
         el('strong', {}, ['Safari']),
-        ' (not inside Instagram/Messages) so the contact card opens.',
+        ' (not inside Instagram/Messages), then tap ',
+        el('strong', {}, ['Add All Contacts']),
+        ' when the sheet appears.',
       ]),
     ]),
     el('div', { class: 'card stack' }, [
@@ -264,7 +266,37 @@ function renderMember() {
   )
 }
 
-async function pullVcard(since) {
+function pullVcard(since) {
+  return isAppleMobile() ? pullVcardApple(since) : downloadVcard(since)
+}
+
+// iOS/iPadOS: fetch a one-time download ticket, then NAVIGATE to it so Safari
+// opens the native multi-contact import ("Add All Contacts"). A blob download
+// lands in Quick Look, which only shows the first card.
+async function pullVcardApple(since) {
+  const cursor = new Date().toISOString()
+  let data
+  try {
+    data = await api(`/api/groups/${encodeURIComponent(joinToken)}/vcard-ticket`, {
+      method: 'POST',
+      headers: { 'X-Session-Token': state.session, 'X-Member-Token': state.memberToken },
+      body: { since: since || '' },
+    })
+  } catch (err) {
+    if (err.status === 401) {
+      groupState.patch(joinToken, { session: null })
+      toast('Session expired — re-enter the passphrase.', 'err')
+      return render()
+    }
+    return toast(friendlyError(err), 'err')
+  }
+  groupState.patch(joinToken, { lastPulledAt: cursor })
+  if (data && data.empty) return toast('Nobody new since last time.', 'ok')
+  window.location.href = data.url // Safari opens the contact-import sheet
+}
+
+// Desktop / Android: download the .vcf (their import handles multiple contacts).
+async function downloadVcard(since) {
   const cursor = new Date().toISOString()
   const qs = since ? `?since=${encodeURIComponent(since)}` : ''
   let res
@@ -292,8 +324,13 @@ async function pullVcard(since) {
   downloadBlob(blob, `${safeName(meta.name)}.vcf`)
   groupState.patch(joinToken, { lastPulledAt: cursor })
   refreshState()
-  toast('Opening your contacts…', 'ok')
+  toast('Downloaded — open the file to import.', 'ok')
   renderMember()
+}
+
+function isAppleMobile() {
+  const ua = navigator.userAgent || ''
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
 }
 
 async function removeSelf() {

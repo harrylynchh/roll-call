@@ -95,3 +95,75 @@ export async function verifySessionForGroup(
   const claims = await verifySession(secret, token, { nowSeconds: target.nowSeconds })
   return claims !== null && claims.groupId === target.groupId && claims.passVersion === target.passVersion
 }
+
+// ---- vCard download tickets --------------------------------------------------
+// A short-lived, signed, single-purpose token that authorizes ONE vCard download
+// via a URL (so iOS Safari can NAVIGATE to a text/vcard response and open the
+// native "Add All Contacts" import). Issued only after the normal session +
+// reciprocity checks; carries the resolved groupId + memberId + delta cursor, so
+// no long-lived token ever appears in a URL. Payload:
+//   "vt1|<groupId>|<memberId>|<encodeURIComponent(since)>|<expiry>"
+
+export const VCARD_TICKET_TTL_SECONDS = 120
+
+export interface VcardTicket {
+  groupId: number
+  memberId: number
+  since: string // '' = all
+  expiry: number
+}
+
+export async function issueVcardTicket(
+  secret: string,
+  claims: { groupId: number; memberId: number; since: string; nowSeconds: number },
+): Promise<string> {
+  const expiry = claims.nowSeconds + VCARD_TICKET_TTL_SECONDS
+  const payload = `vt1|${claims.groupId}|${claims.memberId}|${encodeURIComponent(claims.since)}|${expiry}`
+  const payloadB64 = bytesToBase64url(utf8(payload))
+  const sig = await hmacSha256(secret, payloadB64)
+  return `${payloadB64}.${bytesToBase64url(sig)}`
+}
+
+export async function verifyVcardTicket(
+  secret: string,
+  token: string,
+  opts: { nowSeconds: number },
+): Promise<VcardTicket | null> {
+  if (typeof token !== 'string') return null
+  const dot = token.indexOf('.')
+  if (dot <= 0 || dot === token.length - 1) return null
+  const payloadB64 = token.slice(0, dot)
+  const sigB64 = token.slice(dot + 1)
+
+  let providedSig: Uint8Array
+  try {
+    providedSig = base64urlToBytes(sigB64)
+  } catch {
+    return null
+  }
+  const expectedSig = await hmacSha256(secret, payloadB64)
+  if (!timingSafeEqual(providedSig, expectedSig)) return null
+
+  let payloadStr: string
+  try {
+    payloadStr = dec.decode(base64urlToBytes(payloadB64))
+  } catch {
+    return null
+  }
+  const parts = payloadStr.split('|')
+  if (parts.length !== 5 || parts[0] !== 'vt1') return null
+  const groupId = Number(parts[1])
+  const memberId = Number(parts[2])
+  const expiry = Number(parts[4])
+  let since: string
+  try {
+    since = decodeURIComponent(parts[3]!)
+  } catch {
+    return null
+  }
+  if (!Number.isInteger(groupId) || !Number.isInteger(memberId) || !Number.isInteger(expiry)) {
+    return null
+  }
+  if (opts.nowSeconds >= expiry) return null
+  return { groupId, memberId, since, expiry }
+}
