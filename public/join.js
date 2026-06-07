@@ -268,83 +268,114 @@ function pullVcard(since) {
   return isAppleMobile() ? pullVcardApple(since) : downloadVcard(since)
 }
 
-// iOS/iPadOS: Safari can't batch-import a multi-vCard — Quick Look only ever shows
-// the FIRST card. So DOWNLOAD the file to Files (the ticket URL is attachment-
-// disposition), then guide the user: Files → Share → Contacts → "Add All N".
+// iOS/iPadOS: Safari can't batch-import a multi-vCard, and on many iOS builds the
+// Files → Share → Contacts batch path is broken too. The two things that DO work
+// everywhere: iCloud.com bulk import, and single-contact import. So fetch the
+// roster, split it into cards, and offer both.
 async function pullVcardApple(since) {
   const cursor = new Date().toISOString()
-  const data = await fetchTicket(since)
-  if (!data) return // 401 / error already handled
-  groupState.patch(joinToken, { lastPulledAt: cursor })
-  if (data.empty) return toast('Nobody new since last time.', 'ok')
-  triggerDownload(data.url, `${safeName(meta.name)}.vcf`)
-  refreshState()
-  renderIosHelp()
-}
-
-async function fetchTicket(since) {
+  let res
   try {
-    return await api(`/api/groups/${encodeURIComponent(joinToken)}/vcard-ticket`, {
-      method: 'POST',
-      headers: { 'X-Session-Token': state.session, 'X-Member-Token': state.memberToken },
-      body: { since: since || '' },
-    })
-  } catch (err) {
-    if (err.status === 401) {
-      groupState.patch(joinToken, { session: null })
-      toast('Session expired — re-enter the passphrase.', 'err')
-      render()
-    } else {
-      toast(friendlyError(err), 'err')
-    }
-    return null
+    res = await fetch(
+      `/api/groups/${encodeURIComponent(joinToken)}/vcard${since ? '?since=' + encodeURIComponent(since) : ''}`,
+      { headers: { 'X-Session-Token': state.session, 'X-Member-Token': state.memberToken } },
+    )
+  } catch {
+    return toast('Network error — try again.', 'err')
   }
+  if (res.status === 401) {
+    groupState.patch(joinToken, { session: null })
+    toast('Session expired — re-enter the passphrase.', 'err')
+    return render()
+  }
+  if (!res.ok) {
+    const d = await res.json().catch(() => null)
+    return toast(friendlyError({ message: d && d.error, data: d }), 'err')
+  }
+  const text = await res.text()
+  groupState.patch(joinToken, { lastPulledAt: cursor })
+  const cards = splitCards(text)
+  if (cards.length === 0) return toast('Nobody new since last time.', 'ok')
+  renderIosImport(text, cards)
 }
 
-function triggerDownload(url, filename) {
-  const a = el('a', { href: url, download: filename, rel: 'noopener' })
+// Split a multi-vCard document into [{fn, card}] and pull the display name from FN.
+function splitCards(vcf) {
+  const out = []
+  const re = /BEGIN:VCARD[\s\S]*?END:VCARD/g
+  let m
+  while ((m = re.exec(vcf))) {
+    const card = m[0]
+    const fnLine = card.split(/\r?\n/).find((l) => l.startsWith('FN:'))
+    out.push({ fn: fnLine ? unescapeVcf(fnLine.slice(3)) : 'Contact', card })
+  }
+  return out
+}
+function unescapeVcf(s) {
+  return s
+    .replace(/\\n/gi, ' ')
+    .replace(/\\,/g, ',')
+    .replace(/\\;/g, ';')
+    .replace(/\\\\/g, '\\')
+    .trim()
+}
+function downloadText(text, name) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/vcard;charset=utf-8' }))
+  const a = el('a', { href: url, download: `${safeName(name)}.vcf` })
   document.body.append(a)
   a.click()
-  setTimeout(() => a.remove(), 1500)
+  setTimeout(() => {
+    a.remove()
+    URL.revokeObjectURL(url)
+  }, 1500)
+}
+function downloadBtn(label, text, name) {
+  const b = el('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, [label])
+  b.addEventListener('click', () => downloadText(text, name))
+  return b
+}
+function cardDataUri(card) {
+  return 'data:text/vcard;charset=utf-8,' + encodeURIComponent(card.endsWith('\r\n') ? card : card + '\r\n')
 }
 
-async function redownloadAll() {
-  const data = await fetchTicket('')
-  if (!data || data.empty) return
-  triggerDownload(data.url, `${safeName(meta.name)}.vcf`)
-  toast('Downloading…', 'ok')
-}
-
-// iOS: after the download, show the Files → Share → Contacts steps + iCloud fallback.
-function renderIosHelp() {
-  const n = meta.memberCount
+// iOS import screen: iCloud bulk (guaranteed) + add-one-at-a-time (single-contact
+// import, which works on every build).
+function renderIosImport(fullText, cards) {
+  const n = cards.length
   root.replaceChildren(
-    header(`${n} ${plural(n, 'person')} in this group`),
+    header(`${n} ${plural(n, 'person')} to add`),
+
     el('div', { class: 'card stack' }, [
-      el('h2', { class: 'section-title' }, ['Saved to Files 📁']),
+      el('h2', { class: 'section-title' }, [`Add all ${n} at once`]),
       el('p', { class: 'muted' }, [
-        `${n} contacts downloaded. iPhone won't add them all straight from Safari — finish in 4 quick taps:`,
+        "iPhone Safari can't add multiple contacts in one tap (Apple's limit) — iCloud can, in a few taps:",
       ]),
       el('ol', { class: 'howto' }, [
-        el('li', {}, ['Tap the ', el('strong', {}, ['download icon']), ' (top-right of Safari) and tap the file — or open ', el('strong', {}, ['Files → Downloads']), '.']),
-        el('li', {}, ['Tap ', el('strong', {}, ['Share']), ' (the box with an ↑).']),
-        el('li', {}, ['Choose ', el('strong', {}, ['Contacts']), '.']),
-        el('li', {}, ['Tap ', el('strong', {}, [`Add All ${n} Contacts`]), '.']),
+        el('li', {}, [downloadBtn('Download the .vcf', fullText, meta.name)]),
+        el('li', {}, ['Open ', el('strong', {}, ['iCloud.com/contacts']), ' (button below) and sign in.']),
+        el('li', {}, ['Click the ', el('strong', {}, ['⚙ gear → Import vCard']), '.']),
+        el('li', {}, [`Pick the file you just downloaded — all ${n} sync to your iPhone.`]),
       ]),
-      el('button', { class: 'btn btn--ghost btn--full', type: 'button', onclick: redownloadAll }, ['Download the file again']),
+      el('a', { class: 'btn btn--primary btn--full', href: 'https://www.icloud.com/contacts', target: '_blank', rel: 'noopener' }, ['Open iCloud.com Contacts ↗']),
     ]),
+
     el('details', { class: 'card disclosure' }, [
-      el('summary', {}, ["Didn't work? Add them via iCloud.com"]),
+      el('summary', {}, ['Or add them one at a time (no iCloud)']),
       el('div', { class: 'stack' }, [
-        el('p', { class: 'muted' }, [
-          'On any browser open ',
-          el('strong', {}, ['iCloud.com/contacts']),
-          ', sign in, click ',
-          el('strong', {}, ['⚙ → Import vCard']),
-          ', and choose the file you just saved. It syncs back to your iPhone.',
-        ]),
+        el('p', { class: 'muted' }, ['Tap a name → ', el('strong', {}, ['Create New Contact']), ' → back here for the next.']),
+        el(
+          'ul',
+          { class: 'mlist' },
+          cards.map((c) =>
+            el('li', {}, [
+              el('div', { class: 'm-name' }, [c.fn]),
+              el('a', { class: 'btn btn--ghost btn--sm', href: cardDataUri(c.card) }, ['Add']),
+            ]),
+          ),
+        ),
       ]),
     ]),
+
     el('button', { class: 'btn btn--ghost btn--full', type: 'button', onclick: () => renderMember() }, ['← Back to group']),
   )
 }
