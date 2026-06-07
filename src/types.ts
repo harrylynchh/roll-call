@@ -23,6 +23,7 @@ export interface GroupRow {
   created_at: string
   last_active_at: string
   creator_ip_hash: string | null
+  join_enc: string | null // AES-GCM(join token) under a key derived from the admin token
 }
 
 export interface MemberRow {

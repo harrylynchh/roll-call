@@ -1,4 +1,4 @@
-import { $, el, api, toast, copy, friendlyError } from '/lib.js'
+import { $, el, api, toast, friendlyError, qrSvg, linkRow } from '/lib.js'
 
 const form = $('#create-form')
 const submitBtn = $('#submit')
@@ -96,33 +96,6 @@ function showResult(data, passphrase) {
 function linkBlock(label, url, kind) {
   return el('div', { class: 'linkbox' }, [
     el('span', { class: 'label' }, [label]),
-    el('div', { class: 'linkrow' }, [
-      el('code', { title: url }, [url]),
-      el(
-        'button',
-        {
-          class: 'btn btn--ghost btn--sm',
-          type: 'button',
-          'aria-label': `Copy ${kind} link`,
-          onclick: async (e) => {
-            const ok = await copy(url)
-            toast(ok ? 'Copied!' : 'Copy failed — long-press the link.', ok ? 'ok' : 'err')
-            if (ok) e.target.textContent = 'Copied'
-          },
-        },
-        ['Copy'],
-      ),
-    ]),
+    linkRow(url, `${kind} link`),
   ])
-}
-
-function qrSvg(text) {
-  try {
-    const q = window.qrcode(0, 'M')
-    q.addData(text)
-    q.make()
-    return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true })
-  } catch {
-    return ''
-  }
 }

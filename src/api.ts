@@ -31,11 +31,18 @@ import {
 } from './db'
 import { generateToken, hashToken, isWellFormedToken, generateUid } from './tokens'
 import { hashPassphrase, verifyPassphrase, type PassRecord } from './passphrase'
-import { createSessionForGroup, verifySessionForGroup, SESSION_TTL_SECONDS } from './session'
+import {
+  createSessionForGroup,
+  verifySessionForGroup,
+  SESSION_TTL_SECONDS,
+  issueVcardTicket,
+  verifyVcardTicket,
+} from './session'
 import { checkRateLimit, RULES, MEMBER_CAP, hashIp } from './ratelimit'
 import { buildVCardCollection, vcardFilename, type VCardMember } from './vcard'
 import { parseCreate, parseMember, parseAdminPatch } from './validation'
 import { verifyTurnstile } from './turnstile'
+import { encryptJoinToken, decryptJoinToken } from './joinlink'
 
 type Ctx = Context<{ Bindings: Env }>
 
@@ -130,10 +137,11 @@ app.post('/groups', async (c) => {
 
   const joinToken = generateToken('join')
   const adminToken = generateToken('admin')
-  const [joinHash, adminHash, pass] = await Promise.all([
+  const [joinHash, adminHash, pass, joinEnc] = await Promise.all([
     hashToken(joinToken),
     hashToken(adminToken),
     hashPassphrase(parsed.value.passphrase),
+    encryptJoinToken(joinToken, adminToken), // lets the admin re-share the link later
   ])
   const ts = nowIso()
   await insertGroup(c.env.DB, {
@@ -143,6 +151,7 @@ app.post('/groups', async (c) => {
     pass,
     nowIso: ts,
     creatorIpHash: ipHash,
+    joinEnc,
   })
 
   const o = origin(c)
@@ -235,34 +244,77 @@ app.post('/groups/:joinToken/members', async (c) => {
   return c.json({ memberToken, uid }, 201)
 })
 
-// ---- vcard (session + reciprocity + delta) ----------------------------------
+// Reciprocity gate shared by /vcard (header path) and /vcard-ticket: the caller
+// must hold a member token belonging to THIS group. Returns the member or null.
+async function reciprocityMember(c: Ctx, group: GroupRow): Promise<MemberRow | null> {
+  const mt = c.req.header('X-Member-Token') || ''
+  if (!isWellFormedToken(mt, 'member')) return null
+  const requester = await getMemberByHash(c.env.DB, await hashToken(mt))
+  return requester && requester.group_id === group.id ? requester : null
+}
 
-app.get('/groups/:joinToken/vcard', async (c) => {
+// ---- vcard download ticket (for iOS navigation → native "Add All" import) ----
+// POST with session + member-token headers; returns a short-lived URL the client
+// can navigate to so Safari opens the text/vcard import sheet. `{empty:true}` when
+// a delta pull has nobody new (so the client avoids opening an empty card).
+app.post('/groups/:joinToken/vcard-ticket', async (c) => {
   const t = c.req.param('joinToken')
   if (!isWellFormedToken(t, 'join')) return generic404(c)
   const group = await getGroupByJoinHash(c.env.DB, await hashToken(t))
   if (!group) return generic404(c)
   if (!(await requireSession(c, group))) return c.json({ error: 'unauthorized' }, 401)
+  const requester = await reciprocityMember(c, group)
+  if (!requester) return c.json({ error: 'reciprocity_required' }, 403)
 
-  // Reciprocity: the requester must hold a member token belonging to THIS group.
-  const mt = c.req.header('X-Member-Token') || ''
-  if (!isWellFormedToken(mt, 'member')) return c.json({ error: 'reciprocity_required' }, 403)
-  const requester = await getMemberByHash(c.env.DB, await hashToken(mt))
-  if (!requester || requester.group_id !== group.id) {
-    return c.json({ error: 'reciprocity_required' }, 403)
+  const body = (await c.req.json().catch(() => null)) as { since?: unknown } | null
+  const since = sanitizeSince(typeof body?.since === 'string' ? body.since : undefined) || ''
+
+  const { results } = await listMembers(c.env.DB, group.id, since || null)
+  if (results.length === 0) return c.json({ empty: true })
+
+  const ticket = await issueVcardTicket(c.env.SERVER_SECRET, {
+    groupId: group.id,
+    memberId: requester.id,
+    since,
+    nowSeconds: nowS(),
+  })
+  return c.json({ url: `${origin(c)}/api/groups/${t}/vcard?t=${encodeURIComponent(ticket)}` })
+})
+
+// ---- vcard (session+reciprocity headers, OR a ?t=<ticket>) + delta ----------
+app.get('/groups/:joinToken/vcard', async (c) => {
+  const t = c.req.param('joinToken')
+  if (!isWellFormedToken(t, 'join')) return generic404(c)
+  const group = await getGroupByJoinHash(c.env.DB, await hashToken(t))
+  if (!group) return generic404(c)
+
+  let since: string | null
+  const ticketParam = c.req.query('t')
+  if (ticketParam) {
+    // Ticketed path (iOS download). The ticket already encodes a passed session +
+    // reciprocity check at issue time. Bad/expired ticket → generic 404.
+    const tk = await verifyVcardTicket(c.env.SERVER_SECRET, ticketParam, { nowSeconds: nowS() })
+    if (!tk || tk.groupId !== group.id) return generic404(c)
+    since = tk.since || null
+  } else {
+    if (!(await requireSession(c, group))) return c.json({ error: 'unauthorized' }, 401)
+    if (!(await reciprocityMember(c, group))) return c.json({ error: 'reciprocity_required' }, 403)
+    since = sanitizeSince(c.req.query('since'))
   }
 
   const ipHash = await ipHashOf(c, clientIp(c))
   const rl = await checkRateLimit(c.env.DB, RULES.vcard, ipHash, Date.now())
   if (!rl.allowed) return c.json({ error: 'rate_limited' }, 429)
 
-  const since = sanitizeSince(c.req.query('since'))
   const { results } = await listMembers(c.env.DB, group.id, since)
   const vcf = buildVCardCollection(results.map(toVCardMember))
   return new Response(vcf, {
     status: 200,
     headers: {
       'Content-Type': 'text/vcard; charset=utf-8',
+      // ALWAYS attachment. `inline` makes iOS open Quick Look, which only ever
+      // shows the FIRST card; an attachment download lands in Files, from where
+      // the user reaches Contacts' batch importer (Share → Contacts → Add All).
       'Content-Disposition': `attachment; filename="${vcardFilename(group.name)}"`,
     },
   })
@@ -315,10 +367,20 @@ app.get('/admin/:adminToken', async (c) => {
   const group = await getGroupByAdminHash(c.env.DB, await hashToken(t))
   if (!group) return generic404(c)
   const { results } = await listMembers(c.env.DB, group.id, null)
+
+  // Re-share: recover the join link by decrypting with the admin token from the
+  // URL. Null for groups created before join_enc existed, or if decryption fails.
+  let join: { url: string } | null = null
+  if (group.join_enc) {
+    const joinToken = await decryptJoinToken(group.join_enc, t)
+    if (joinToken) join = { url: `${origin(c)}/g/${joinToken}` }
+  }
+
   return c.json({
     name: group.name,
     passphraseRequired: group.pass_hash !== null,
     createdAt: group.created_at,
+    join,
     members: results.map((m) => ({
       id: m.id,
       fn: m.fn,

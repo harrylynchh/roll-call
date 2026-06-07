@@ -91,7 +91,8 @@ CREATE TABLE groups (
   pass_version    INTEGER NOT NULL DEFAULT 1, -- bump to invalidate sessions
   created_at      TEXT NOT NULL,              -- ISO8601 UTC
   last_active_at  TEXT NOT NULL,              -- bumped on any write; drives TTL
-  creator_ip_hash TEXT                        -- salted hash, abuse triage only
+  creator_ip_hash TEXT,                       -- salted hash, abuse triage only
+  join_enc        TEXT                        -- AES-GCM(join token) keyed by the admin token (migration 0002); admin re-share
 );
 
 CREATE TABLE members (
@@ -171,6 +172,11 @@ passphrase is a shared secret that survives link leakage. Threats & mitigations:
 - **DB compromise.** Store token *hashes* and the passphrase *KDF hash* only —
   a dump yields no working links and no plaintext passphrase. PII (names/
   numbers) is still exposed in a dump → keep data small and short-lived (§9).
+  *Exception (admin re-share):* the join token is also stored **encrypted under a
+  key derived from the admin token** (`join_enc`, `joinlink.ts`). The key is the
+  admin token, which is never in the DB (only its hash), so a dump still yields
+  no working links. Decrypted only when a valid admin token is presented (admin
+  page) — strictly less power than the admin already holds.
 - **Passphrase handling.**
   - Hash with **PBKDF2-HMAC-SHA256** via WebCrypto, **per-group random salt**,
     iteration count stored per group. **Constant-time compare** the result.
@@ -243,9 +249,16 @@ vCard 3.0; fold long lines if needed.
 pull calls `…/vcard?since=<cursor>` → only `updated_at > since` → import → bump
 cursor. Using `updated_at` re-delivers people who changed their number.
 
-**Delivery note (no SMS):** nothing is transmitted. On mobile, tapping the
-served `.vcf` opens the native import sheet. Warn users to open the link in
-Safari/Chrome, not an in-app webview (which often won't trigger the sheet).
+**Delivery note (no SMS):** nothing is transmitted; the client downloads the
+`.vcf`. **iOS reality (researched, high-confidence):** Safari/Quick Look CANNOT
+batch-import a multi-contact `.vcf` — it only ever shows the first card and has
+no "Add All". The "Add All N Contacts" batch importer lives in Contacts.app and
+is reachable ONLY via the iOS Share Sheet. So on iOS we serve the file as an
+`attachment` (lands in Files) and guide the user: **Files → tap the file → Share
+→ Contacts → "Add All N Contacts"**, with **iCloud.com → Import vCard** as a
+guaranteed fallback. (Android/desktop import all from the download directly.)
+`inline`/navigation does NOT help — it's what triggers the single-card Quick Look.
+Still warn users to open in Safari/Chrome, not an in-app webview.
 
 ## 11. Contact import (filling the form) — progressive enhancement
 

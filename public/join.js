@@ -254,7 +254,7 @@ function renderMember() {
       el('p', { class: 'note-hint' }, [
         'On iPhone, open this page in ',
         el('strong', {}, ['Safari']),
-        ' (not inside Instagram/Messages) so the contact card opens.',
+        ' (not inside Instagram/Messages). After you tap “Add everyone”, we’ll show you the last few taps to add them all.',
       ]),
     ]),
     el('div', { class: 'card stack' }, [
@@ -264,7 +264,93 @@ function renderMember() {
   )
 }
 
-async function pullVcard(since) {
+function pullVcard(since) {
+  return isAppleMobile() ? pullVcardApple(since) : downloadVcard(since)
+}
+
+// iOS/iPadOS: Safari can't batch-import a multi-vCard — Quick Look only ever shows
+// the FIRST card. So DOWNLOAD the file to Files (the ticket URL is attachment-
+// disposition), then guide the user: Files → Share → Contacts → "Add All N".
+async function pullVcardApple(since) {
+  const cursor = new Date().toISOString()
+  const data = await fetchTicket(since)
+  if (!data) return // 401 / error already handled
+  groupState.patch(joinToken, { lastPulledAt: cursor })
+  if (data.empty) return toast('Nobody new since last time.', 'ok')
+  triggerDownload(data.url, `${safeName(meta.name)}.vcf`)
+  refreshState()
+  renderIosHelp()
+}
+
+async function fetchTicket(since) {
+  try {
+    return await api(`/api/groups/${encodeURIComponent(joinToken)}/vcard-ticket`, {
+      method: 'POST',
+      headers: { 'X-Session-Token': state.session, 'X-Member-Token': state.memberToken },
+      body: { since: since || '' },
+    })
+  } catch (err) {
+    if (err.status === 401) {
+      groupState.patch(joinToken, { session: null })
+      toast('Session expired — re-enter the passphrase.', 'err')
+      render()
+    } else {
+      toast(friendlyError(err), 'err')
+    }
+    return null
+  }
+}
+
+function triggerDownload(url, filename) {
+  const a = el('a', { href: url, download: filename, rel: 'noopener' })
+  document.body.append(a)
+  a.click()
+  setTimeout(() => a.remove(), 1500)
+}
+
+async function redownloadAll() {
+  const data = await fetchTicket('')
+  if (!data || data.empty) return
+  triggerDownload(data.url, `${safeName(meta.name)}.vcf`)
+  toast('Downloading…', 'ok')
+}
+
+// iOS: after the download, show the Files → Share → Contacts steps + iCloud fallback.
+function renderIosHelp() {
+  const n = meta.memberCount
+  root.replaceChildren(
+    header(`${n} ${plural(n, 'person')} in this group`),
+    el('div', { class: 'card stack' }, [
+      el('h2', { class: 'section-title' }, ['Saved to Files 📁']),
+      el('p', { class: 'muted' }, [
+        `${n} contacts downloaded. iPhone won't add them all straight from Safari — finish in 4 quick taps:`,
+      ]),
+      el('ol', { class: 'howto' }, [
+        el('li', {}, ['Tap the ', el('strong', {}, ['download icon']), ' (top-right of Safari) and tap the file — or open ', el('strong', {}, ['Files → Downloads']), '.']),
+        el('li', {}, ['Tap ', el('strong', {}, ['Share']), ' (the box with an ↑).']),
+        el('li', {}, ['Choose ', el('strong', {}, ['Contacts']), '.']),
+        el('li', {}, ['Tap ', el('strong', {}, [`Add All ${n} Contacts`]), '.']),
+      ]),
+      el('button', { class: 'btn btn--ghost btn--full', type: 'button', onclick: redownloadAll }, ['Download the file again']),
+    ]),
+    el('details', { class: 'card disclosure' }, [
+      el('summary', {}, ["Didn't work? Add them via iCloud.com"]),
+      el('div', { class: 'stack' }, [
+        el('p', { class: 'muted' }, [
+          'On any browser open ',
+          el('strong', {}, ['iCloud.com/contacts']),
+          ', sign in, click ',
+          el('strong', {}, ['⚙ → Import vCard']),
+          ', and choose the file you just saved. It syncs back to your iPhone.',
+        ]),
+      ]),
+    ]),
+    el('button', { class: 'btn btn--ghost btn--full', type: 'button', onclick: () => renderMember() }, ['← Back to group']),
+  )
+}
+
+// Desktop / Android: download the .vcf (their import handles multiple contacts).
+async function downloadVcard(since) {
   const cursor = new Date().toISOString()
   const qs = since ? `?since=${encodeURIComponent(since)}` : ''
   let res
@@ -292,8 +378,13 @@ async function pullVcard(since) {
   downloadBlob(blob, `${safeName(meta.name)}.vcf`)
   groupState.patch(joinToken, { lastPulledAt: cursor })
   refreshState()
-  toast('Opening your contacts…', 'ok')
+  toast('Downloaded — open the file to import.', 'ok')
   renderMember()
+}
+
+function isAppleMobile() {
+  const ua = navigator.userAgent || ''
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1)
 }
 
 async function removeSelf() {

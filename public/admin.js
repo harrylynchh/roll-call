@@ -1,4 +1,4 @@
-import { $, el, api, toast, friendlyError, fmtDate } from '/lib.js'
+import { $, el, api, toast, friendlyError, fmtDate, qrSvg, linkRow } from '/lib.js'
 
 const adminToken = location.pathname.split('/').filter(Boolean).pop() || ''
 const apiBase = `/api/admin/${encodeURIComponent(adminToken)}`
@@ -39,11 +39,29 @@ function render() {
       el('h1', { class: 'page-title' }, ['Manage group']),
       el('p', { class: 'page-sub' }, [`Created ${fmtDate(data.createdAt)}`]),
     ]),
+    shareCard(),
     renameCard(),
     membersCard(),
     passphraseCard(),
     dangerCard(),
   )
+}
+
+// --- share / re-share the join link ------------------------------------------
+function shareCard() {
+  if (!data.join || !data.join.url) {
+    return el('div', { class: 'card stack' }, [
+      el('span', { class: 'label' }, ['Join link']),
+      el('p', { class: 'muted' }, ['Not available for this group (created before re-sharing was added).']),
+    ])
+  }
+  const url = data.join.url
+  return el('div', { class: 'card stack' }, [
+    el('span', { class: 'label' }, ['Share this group']),
+    el('div', { class: 'qr', html: qrSvg(url) }),
+    linkRow(url, 'join link'),
+    el('p', { class: 'hint' }, ['Paste this link + the passphrase into your group chat.']),
+  ])
 }
 
 // --- rename -------------------------------------------------------------------
