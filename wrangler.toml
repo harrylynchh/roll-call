@@ -17,4 +17,5 @@ database_id = "9f5bbd75-454d-4441-a7f8-b195eac03709"
 # Replace the placeholder with your real Turnstile site key before deploying.
 # (Local `wrangler pages dev` overrides these from .dev.vars — test keys there.)
 [vars]
-TURNSTILE_SITEKEY = "REPLACE_WITH_YOUR_TURNSTILE_SITE_KEY"
+# Public Turnstile site key (safe to commit). Secret goes via `wrangler pages secret put`.
+TURNSTILE_SITEKEY = "0x4AAAAAADgWjdlg5O8ysky4"
