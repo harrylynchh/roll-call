@@ -1,4 +1,4 @@
-import { $, el, api, toast, friendlyError, fmtDate, qrSvg, linkRow } from '/lib.js'
+import { $, el, api, toast, friendlyError, fmtDate, qrSvg, linkRow, attachInputGuard } from '/lib.js'
 
 const adminToken = location.pathname.split('/').filter(Boolean).pop() || ''
 const apiBase = `/api/admin/${encodeURIComponent(adminToken)}`
@@ -67,6 +67,7 @@ function shareCard() {
 // --- rename -------------------------------------------------------------------
 function renameCard() {
   const input = el('input', { class: 'input', id: 'gname', value: data.name, maxlength: 80, 'aria-label': 'Group name' })
+  attachInputGuard(input)
   const btn = el('button', { class: 'btn btn--primary btn--sm', type: 'submit' }, ['Save'])
   const form = el('form', { class: 'card stack' }, [
     el('span', { class: 'label' }, ['Group name']),
