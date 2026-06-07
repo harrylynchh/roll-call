@@ -1,10 +1,10 @@
-# Cloudflare Pages static-asset headers. Applied to all static responses; the
-# /api Functions will set their own (and will need to widen CSP for Turnstile:
-# script-src + frame-src https://challenges.cloudflare.com) in the next phase.
+# Cloudflare Pages static-asset headers. The /api Functions set their own.
+# CSP allows: self for scripts/styles/fetch, Google Fonts (styles+fonts), and
+# Cloudflare Turnstile (script + iframe + connect) for the create page.
 /*
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'

@@ -1,0 +1,46 @@
+name: Deploy
+
+# Auto-deploy on merge to main: typecheck + test must pass, then ship the Pages
+# app (frontend + /api) and the cron Worker to Cloudflare production.
+#
+# Requires two GitHub repo secrets (Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN  — token with Pages:Edit + Workers Scripts:Edit (+ D1:Edit
+#                           if you later run migrations here). Account-scoped.
+#   CLOUDFLARE_ACCOUNT_ID — your Cloudflare account id.
+# Pages/Worker secrets (SERVER_SECRET, TURNSTILE_SECRET) persist on the project,
+# so CI does not set them.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - name: Deploy Pages (frontend + /api)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy --project-name roll-call --branch=main
+
+      - name: Deploy cron Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config worker-cron/wrangler.toml

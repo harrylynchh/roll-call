@@ -8,11 +8,14 @@ _Last updated: 2026-06-07 by build-session-1 (foundation + infra provisioned + l
 
 ## Status
 
-**Phase: full /api implemented + smoke-tested; frontend flows are next.** Backend
-security modules + all API routes done (75 unit tests; whole flow verified
-end-to-end against local D1). Cloudflare infra provisioned, Turnstile wired,
-landing page **live**. Remaining: the create/join/admin **frontend pages**,
-D1 integration tests, and e2e on a real iPhone.
+**Phase: full app built (backend + frontend); deploy + e2e remain.** Backend
+security modules + all API routes (75 unit tests) AND the create/join/admin
+**frontend pages** are done and verified end-to-end against local D1 (screenshots
+reviewed). CI/CD workflows added. Remaining: confirm the live deploy, automate D1
+integration tests, and e2e on a real iPhone.
+
+> **Git workflow changed (CLAUDE.md):** no direct pushes to `main` — branch +
+> PR. `main` auto-deploys via GitHub Actions once the two CF secrets are added.
 
 ## Live infra (provisioned 2026-06-07)
 
@@ -32,14 +35,16 @@ D1 integration tests, and e2e on a real iPhone.
   needed). If you want the real widget on localhost, add `localhost` to the
   widget hostnames and swap `.dev.vars`.
 
-### ⚠️ Still needs the human (next time you deploy the Functions)
-- The `/api` Functions exist now but **aren't deployed yet** (only the static
-  landing page is live). On the next `npm run deploy`, confirm the **D1 binding**
-  `DB → roll-call-db` is attached to the Pages project (dashboard → Pages →
-  roll-call → Settings → Functions). Then the live API is reachable.
-- Before that deploy, **widen the static CSP** in `public/_headers` to allow
-  Turnstile on the create page: add `https://challenges.cloudflare.com` to
-  `script-src` and `frame-src` (needed once the create form renders the widget).
+### ⚠️ Still needs the human
+- **GitHub Actions secrets for auto-deploy** (Settings → Secrets and variables →
+  Actions): `CLOUDFLARE_API_TOKEN` (Pages:Edit + Workers Scripts:Edit) and
+  `CLOUDFLARE_ACCOUNT_ID`. Until these exist, `deploy.yml` will fail on merge to
+  `main`. (Manual `npm run deploy` still works in the meantime.)
+- Confirm the **D1 binding** `DB → roll-call-db` shows on the Pages project
+  (dashboard → Pages → roll-call → Settings → Functions) now that Functions are
+  deployed.
+- Optional: add `roll-call-77h.pages.dev` to the **Turnstile widget** hostnames
+  (the create page renders the widget in production).
 
 ## Decisions locked
 
@@ -101,25 +106,34 @@ D1 integration tests, and e2e on a real iPhone.
 - ✅ Whole flow **smoke-tested against local D1** (create→unlock→add→reciprocity
   →vcard→admin; scope-isolation 404s; no-session 401).
 
-## Next up (ordered) — frontend flows → deploy → e2e
+## Done in build-session-3 (frontend + CI/CD)
 
-1. **Create page** wiring (`/` CTA → a form): name + passphrase + Turnstile
-   widget → `POST /api/groups`; show join link (with QR) + admin link + "save
-   these" UX. **First add `https://challenges.cloudflare.com` to `_headers`
-   `script-src`/`frame-src`** so the widget loads under CSP.
-2. **Join/roster page** (`/g/:joinToken`): fetch metadata → passphrase prompt →
-   `/unlock` (store session) → add-self form (Contact Picker where available →
-   manual; PLAN §11) → store member token in `localStorage` → "Add everyone"
-   (vcard) + "Add new since last time" (delta via stored `last_pulled_at`).
-   Surface the "open in Safari, not an in-app webview" hint.
-3. **Admin page** (`/a/:adminToken`): member list with remove, rename, change
-   passphrase (warn: logs everyone out), delete group.
-4. **Deploy the Functions** (`npm run deploy`) + confirm D1 binding; `wrangler
-   tail` to confirm no token/passphrase in logs.
-5. **D1 integration tests** with `@cloudflare/vitest-pool-workers` (Miniflare D1)
-   for the routes (the smoke test is manual; make it automated).
-6. **E2E on a real iPhone** (Safari): unlock, manual add, import full + delta.
-7. Final security pass vs the CLAUDE.md checklist.
+- ✅ **Create page** (`public/create.html` + `create.js`): name + passphrase +
+  Turnstile (sitekey from `/api/config`) → `POST /api/groups` → result with QR
+  (self-hosted `vendor/qrcode.min.js`), copy buttons, "save your admin link".
+- ✅ **Join/roster page** (`public/join.html` served at `/g/*`, `join.js`):
+  metadata → unlock → add-self (Contact Picker where supported → manual) → store
+  session+member token in `localStorage` → "Add everyone" / delta pull (blob
+  download) → edit/remove self. "Open in Safari" hint.
+- ✅ **Admin page** (`public/admin.html` at `/a/*`, `admin.js`): rename, member
+  list + remove, change passphrase (warns), delete group.
+- ✅ Shared `lib.js`, extended `styles.css` (forms/cards/toasts), `_redirects`
+  (token routes → `/join` `/admin` clean URLs), `_headers` CSP widened for
+  Turnstile. Landing CTA now links to `/create`.
+- ✅ `.github/workflows/ci.yml` (typecheck+test on PRs) and `deploy.yml`
+  (auto-deploy Pages + cron Worker on push to `main`).
+- ✅ Verified all three pages render against local D1 (screenshots reviewed).
+
+## Next up (ordered) — deploy verify → tests → e2e
+
+1. **Confirm the live deploy** (production already deployed this session): on
+   `roll-call-77h.pages.dev`, walk create → join → add → pull; `wrangler pages
+   deployment tail` to confirm no token/passphrase in logs; confirm D1 binding.
+2. **D1 integration tests** with `@cloudflare/vitest-pool-workers` (Miniflare D1)
+   covering the routes — the current route check is a manual curl smoke test.
+3. **E2E on a real iPhone** (Safari): unlock, manual add, import full + delta;
+   confirm the `.vcf` opens the contacts sheet (and the in-app-webview caveat).
+4. Final security pass vs the CLAUDE.md checklist.
 
 ## Known gotchas / reminders
 
@@ -137,6 +151,16 @@ D1 integration tests, and e2e on a real iPhone.
   (only hashes are stored), so the create UI must surface/save both links.
 - **Local dev:** `./dev.sh` (applies local schema + `wrangler pages dev` on
   :8788). Smoke test: `curl -s localhost:8788/api/config`.
+- **Pages `_redirects` for token routes:** destinations MUST be the extensionless
+  clean URLs (`/join`, `/admin`), NOT `*.html` (clean-URL 308 strips the ext and
+  drops the token) and NOT `/g/index.html` (clean-URL strip → `/g/` re-matches
+  `/g/*` → "infinite loop", rule dropped). Lesson learned the hard way.
+- **Vendored third-party script:** `public/vendor/qrcode.min.js`
+  (`qrcode-generator`, self-hosted so CSP `script-src 'self'` covers it; no
+  external request). The only third-party script besides Turnstile.
+- **Frontend uses no inline styles/scripts** so the CSP needs no `'unsafe-inline'`
+  (animation delays/colors are CSS classes; dynamic styling uses CSSOM, not the
+  `style` attribute). Keep it that way.
 - **Functions not deployed yet:** only the static landing page is live; run
   `npm run deploy` to ship the `/api` (after the CSP/Turnstile `_headers` edit).
 - **PBKDF2 iterations untuned:** `DEFAULT_PBKDF2_ITERS = 100_000` is a starting

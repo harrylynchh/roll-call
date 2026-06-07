@@ -1,0 +1,6 @@
+# Cloudflare Pages SPA rewrites (200 = serve that file, keep the URL). Each
+# token-bearing route serves a single shell; the page JS reads the token from the
+# path. Destinations are the EXTENSIONLESS clean URLs (/join, /admin) — pointing
+# at *.html would trigger Pages' clean-URL 308 redirect and drop the token.
+/g/*  /join   200
+/a/*  /admin  200

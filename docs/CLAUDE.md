@@ -17,6 +17,17 @@ gotchas. It's the baton — assume the next session has *no memory* of this one
 beyond these three files and the code. If a decision changes the design, update
 `PLAN.md` too and keep them in sync.
 
+## Git workflow (REQUIRED — never regress)
+
+- **Never push to `main`.** No direct commits or pushes to `main`, ever.
+- **Branch for every change** (`feat/…`, `fix/…`, `docs/…`), push the *branch*,
+  and **open a PR** for Harry to review/merge (`gh pr create`). Keep PRs focused.
+- `main` is the **deploy branch**: merging to `main` auto-deploys via GitHub
+  Actions (Cloudflare Pages + the cron Worker). Don't deploy `main` by hand once
+  CI is in place; let the merge do it.
+- Cloudflare deploys of a *branch* (previews) are fine for testing; production
+  deploys come from `main` via CI.
+
 ## Security invariants (non-negotiable — never regress these)
 
 - **Tokens:** ≥128 bits CSPRNG, base64url. Never sequential/guessable client-
