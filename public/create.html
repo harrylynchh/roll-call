@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Create a group · Roll Call</title>
+    <meta name="theme-color" content="#F4EEE2" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23D9542B'/%3E%3Cpath d='M9 16.4l4.6 4.6L23 11' fill='none' stroke='%23F6F1E7' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=Hanken+Grotesk:wght@400;500;600;700&display=swap"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+    <script src="/vendor/qrcode.min.js" defer></script>
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="topbar app">
+      <a class="wordmark" href="/" aria-label="Roll Call home">
+        <span class="wordmark__mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="24" height="24">
+            <circle cx="16" cy="16" r="15" fill="#D9542B" />
+            <path d="M9 16.4l4.6 4.6L23 11" fill="none" stroke="#F4EEE2" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+        <span class="wordmark__text">Roll&nbsp;Call</span>
+      </a>
+      <a class="back" href="/">← Home</a>
+    </header>
+
+    <main class="app">
+      <h1 class="page-title">Create a group</h1>
+      <p class="page-sub">Name it, set a passphrase, and share the link with your group.</p>
+
+      <form id="create-form" class="card stack" novalidate>
+        <div class="field">
+          <span class="label"><label for="name">Group name</label></span>
+          <input class="input" id="name" name="name" maxlength="80" autocomplete="off" required placeholder="Summer Interns 2026" />
+        </div>
+        <div class="field">
+          <span class="label"><label for="pass">Passphrase</label></span>
+          <input class="input" id="pass" name="pass" type="text" maxlength="200" autocomplete="off" autocapitalize="off" autocorrect="off" required placeholder="something only the group knows" />
+          <p class="hint">Everyone needs this to join — pick something easy to share, hard to guess.</p>
+        </div>
+        <div id="ts-widget" class="cf-turnstile" aria-label="Bot check"></div>
+        <button class="btn btn--primary btn--full" id="submit" type="submit">Create group</button>
+      </form>
+
+      <section id="result" class="card stack" hidden aria-live="polite"></section>
+    </main>
+
+    <script type="module" src="/create.js"></script>
+  </body>
+</html>
