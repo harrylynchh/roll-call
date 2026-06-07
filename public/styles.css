@@ -211,9 +211,12 @@ a {
   outline-offset: 3px;
 }
 
-/* "coming soon" reveal */
-.soon {
+/* "coming soon" reveal — stays hidden (UA [hidden] rule) until JS removes the
+   attribute; display:flex is scoped so it can't override `hidden`. */
+.soon:not([hidden]) {
   display: flex;
+}
+.soon {
   align-items: center;
   gap: 0.55rem;
   margin: 1.1rem 0 0;
